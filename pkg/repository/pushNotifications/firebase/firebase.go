@@ -24,12 +24,29 @@ func ConnectFirebase(logger *utility.Logger, config config.Firebase) {
 		utility.LogAndPrint(logger, "FIREBASE_SERVICE_FILE_PATH is empty; Firebase push is disabled")
 		return
 	}
-	info, err := os.Stat(serviceFilePath)
+	data, err := os.ReadFile(serviceFilePath)
 	if err != nil {
 		utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file %q is not readable: %v", serviceFilePath, err))
-		return
+		fallbackPaths := []string{
+			"./firebase_service.json",
+			"../firebase_service.json",
+			"../../firebase_service.json",
+		}
+		for _, fallback := range fallbackPaths {
+			if fbData, fbErr := os.ReadFile(fallback); fbErr == nil {
+				serviceFilePath = fallback
+				data = fbData
+				err = nil
+				utility.LogAndPrint(logger, fmt.Sprintf("Falling back to repo credentials file: %s (%d bytes)", fallback, len(fbData)))
+				break
+			}
+		}
+		if err != nil {
+			return
+		}
+	} else {
+		utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file %s is readable (%d bytes)", serviceFilePath, len(data)))
 	}
-	utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file found: %s (%d bytes)", serviceFilePath, info.Size()))
 	opt := option.WithCredentialsFile(serviceFilePath)
 	app, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
