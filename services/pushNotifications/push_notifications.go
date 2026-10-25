@@ -262,6 +262,21 @@ func PushFCMToUserIDs(logger *utility.Logger, db *gorm.DB, userIDs []string, req
 	return deliverFCM(logger, db, userIDs, req.Title, req.Message, req.AvatarUrl, req.Payload, req.OrgId)
 }
 
+var protectedRoutingKeys = map[string]bool{
+	"channel_id":        true,
+	"thread_id":         true,
+	"message_id":        true,
+	"org_id":            true,
+	"sender_id":         true,
+	"event":             true,
+	"notification_type": true,
+	"section":           true,
+	"type":              true,
+	"buzz_id":           true,
+	"buzz_code":         true,
+	"host_id":           true,
+}
+
 func deliverFCM(logger *utility.Logger, db *gorm.DB, userIDs []string, title, body, avatar string, payload any, orgID string) error {
 	tokens, err := models.ListDeviceTokensByUserIDs(db, userIDs)
 	if err != nil {
@@ -274,17 +289,21 @@ func deliverFCM(logger *utility.Logger, db *gorm.DB, userIDs []string, title, bo
 
 	tokenValues := make([]string, 0, len(tokens))
 	recipients := make([]string, 0, len(tokens))
-	seen := map[string]struct{}{}
+	seenUsers := map[string]struct{}{}
+	seenTokens := map[string]struct{}{}
 	for _, token := range tokens {
-		if strings.TrimSpace(token.Token) == "" {
+		t := strings.TrimSpace(token.Token)
+		if t == "" {
 			continue
 		}
-		tokenValues = append(tokenValues, token.Token)
-		if _, exists := seen[token.UserId]; exists {
-			continue
+		if _, exists := seenTokens[t]; !exists {
+			seenTokens[t] = struct{}{}
+			tokenValues = append(tokenValues, t)
 		}
-		seen[token.UserId] = struct{}{}
-		recipients = append(recipients, token.UserId)
+		if _, exists := seenUsers[token.UserId]; !exists {
+			seenUsers[token.UserId] = struct{}{}
+			recipients = append(recipients, token.UserId)
+		}
 	}
 	if len(tokenValues) == 0 {
 		return nil
@@ -315,7 +334,15 @@ func deliverFCM(logger *utility.Logger, db *gorm.DB, userIDs []string, title, bo
 		logger.Error("firebase push partially failed: %v", err)
 	}
 
-	payloadMap, _ := payload.(map[string]interface{})
+	var payloadMap map[string]interface{}
+	if pm, ok := payload.(map[string]interface{}); ok {
+		payloadMap = pm
+	} else if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err == nil {
+			_ = json.Unmarshal(raw, &payloadMap)
+		}
+	}
 	if _, _, saveErr := onesignalService.SaveBatchNotifications(db, utility.GenerateUUID(), recipients, title, body, avatar, payloadMap, orgID); saveErr != nil {
 		logger.Error("failed to save notification history: %v", saveErr)
 	}
@@ -394,12 +421,18 @@ func fitDataPayload(data map[string]string) map[string]string {
 		longestKey := ""
 		longest := 0
 		for key, value := range data {
+			if protectedRoutingKeys[key] {
+				continue
+			}
 			if len(value) > longest {
 				longest = len(value)
 				longestKey = key
 			}
 		}
-		if longestKey == "" || longest <= 32 {
+		if longestKey == "" {
+			break
+		}
+		if longest <= 32 {
 			delete(data, longestKey)
 			continue
 		}

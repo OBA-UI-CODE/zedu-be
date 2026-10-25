@@ -3,6 +3,7 @@ package firebase
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -61,7 +62,10 @@ func SendNotificationByFCMTokens(logger *utility.Logger, fcmTokens []string, tit
 func SendPush(logger *utility.Logger, tokens []string, title, body, imageURL string, data map[string]string) ([]string, int, error) {
 	client := Connection().Client
 	if client == nil {
-		return nil, 0, fmt.Errorf("firebase client is not initialized")
+		if logger != nil {
+			logger.Info("Firebase client is not initialized; skipping push delivery")
+		}
+		return nil, 0, nil
 	}
 	if len(tokens) == 0 {
 		return nil, 0, nil
@@ -85,12 +89,23 @@ func SendPush(logger *utility.Logger, tokens []string, title, body, imageURL str
 		apnsConfig.FCMOptions = &messaging.APNSFCMOptions{ImageURL: imageURL}
 	}
 
+	webpushConfig := &messaging.WebpushConfig{
+		Headers: map[string]string{
+			"Urgency": "high",
+		},
+	}
+
 	callData := data
 	callMessage := false
 	if isDirectCall(data) {
 		callMessage = true
 		callData = withDisplayData(data, title, body)
 		apnsConfig.Payload.Aps.Alert = &messaging.ApsAlert{Title: title, Body: body}
+		webpushConfig.Notification = &messaging.WebpushNotification{
+			Title: title,
+			Body:  body,
+			Icon:  imageURL,
+		}
 	}
 
 	var invalid []string
@@ -115,6 +130,7 @@ func SendPush(logger *utility.Logger, tokens []string, title, body, imageURL str
 				},
 			},
 			APNS:         apnsConfig,
+			Webpush:      webpushConfig,
 			Notification: notification,
 		}
 		if callMessage {
@@ -168,7 +184,11 @@ func isDirectCall(data map[string]string) bool {
 }
 
 func withDisplayData(data map[string]string, title, body string) map[string]string {
-	cloned := make(map[string]string, len(data)+2)
+	capHint := len(data)
+	if capHint <= math.MaxInt-2 {
+		capHint += 2
+	}
+	cloned := make(map[string]string, capHint)
 	for key, value := range data {
 		cloned[key] = value
 	}
