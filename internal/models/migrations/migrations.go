@@ -27,6 +27,7 @@ func AuthMigrationModels() []any {
 		models.AgentWorkflow{},
 		models.Prompts{},
 		models.FcmTokens{},
+		models.UserDeviceToken{},
 		models.CreditTransaction{},
 		models.IntegrationOutput{},
 		models.Integrations{},

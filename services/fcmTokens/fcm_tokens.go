@@ -1,6 +1,7 @@
 package fcmtokens
 
 import (
+	"errors"
 	"net/http"
 
 	"gorm.io/gorm"
@@ -10,22 +11,31 @@ import (
 )
 
 func CreateFcmToken(req models.CreateFcmTokenRequest, db *gorm.DB) (int, error) {
+	platform := req.Platform
+	if platform == "" {
+		platform = "web"
+	}
+	if platform != "web" && platform != "android" && platform != "ios" {
+		return http.StatusUnprocessableEntity, errors.New("platform must be web, android, or ios")
+	}
 
-	var ft models.FcmTokens
-
-	ft.FcmToken = req.FcmToken
-	ft.UserId = req.UserId
-	ft.IsLive = true
-	ft.ID = utility.GenerateUUID()
-
-	err := ft.CreateFcmToken(db)
-
-	if err != nil {
+	token := models.UserDeviceToken{
+		UserId:   req.UserId,
+		Token:    req.FcmToken,
+		Platform: platform,
+	}
+	if err := token.Upsert(db); err != nil {
 		return http.StatusInternalServerError, err
 	}
 
 	return http.StatusCreated, nil
+}
 
+func DeleteFcmToken(userID, token string, db *gorm.DB) (int, error) {
+	if err := models.DeleteDeviceToken(db, userID, token); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
 }
 
 func CreateWnsConfig(req models.CreateWnsTokenRequest, db *gorm.DB) (int, error) {
