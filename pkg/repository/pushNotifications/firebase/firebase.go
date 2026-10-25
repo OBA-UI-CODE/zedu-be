@@ -19,15 +19,18 @@ const fcmMulticastLimit = 500
 
 func ConnectFirebase(logger *utility.Logger, config config.Firebase) {
 	utility.LogAndPrint(logger, "Connect Firebase was called")
-	if strings.TrimSpace(config.ServiceFilePath) == "" {
+	serviceFilePath := strings.Trim(strings.TrimSpace(config.ServiceFilePath), "\"'")
+	if serviceFilePath == "" {
 		utility.LogAndPrint(logger, "FIREBASE_SERVICE_FILE_PATH is empty; Firebase push is disabled")
 		return
 	}
-	if _, err := os.Stat(config.ServiceFilePath); err != nil {
-		utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file %q is not readable: %v", config.ServiceFilePath, err))
+	info, err := os.Stat(serviceFilePath)
+	if err != nil {
+		utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file %q is not readable: %v", serviceFilePath, err))
 		return
 	}
-	opt := option.WithCredentialsFile(config.ServiceFilePath)
+	utility.LogAndPrint(logger, fmt.Sprintf("Firebase credentials file found: %s (%d bytes)", serviceFilePath, info.Size()))
+	opt := option.WithCredentialsFile(serviceFilePath)
 	app, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
 		utility.LogAndPrint(logger, fmt.Sprintf("error initializing Firebase app: %v", err))
