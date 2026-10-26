@@ -51,7 +51,7 @@ func TestUserDeviceToken_MultiPlatformSupport(t *testing.T) {
 	}
 }
 
-func TestUserDeviceToken_MultiDeviceSamePlatform(t *testing.T) {
+func TestUserDeviceToken_SamePlatform_UpdatesToken(t *testing.T) {
 	tst.Setup()
 	db := storage.Connection()
 
@@ -61,18 +61,29 @@ func TestUserDeviceToken_MultiDeviceSamePlatform(t *testing.T) {
 
 	user := CreateTestUser(t, db)
 
-	tokenDesktop := "fcm_token_desktop_" + utility.GenerateUUID()
-	tokenLaptop := "fcm_token_laptop_" + utility.GenerateUUID()
+	for _, plat := range []string{"web", "android", "ios"} {
+		tokenFirst := "fcm_token_initial_" + plat + "_" + utility.GenerateUUID()
+		tokenSecond := "fcm_token_updated_" + plat + "_" + utility.GenerateUUID()
 
-	dev1 := models.UserDeviceToken{UserId: user.ID, Token: tokenDesktop, Platform: "web"}
-	dev2 := models.UserDeviceToken{UserId: user.ID, Token: tokenLaptop, Platform: "web"}
+		dev1 := models.UserDeviceToken{UserId: user.ID, Token: tokenFirst, Platform: plat}
+		dev2 := models.UserDeviceToken{UserId: user.ID, Token: tokenSecond, Platform: plat}
 
-	require.NoError(t, dev1.Upsert(db.Postgresql))
-	require.NoError(t, dev2.Upsert(db.Postgresql))
+		require.NoError(t, dev1.Upsert(db.Postgresql))
+		require.NoError(t, dev2.Upsert(db.Postgresql))
 
-	fetched, err := models.ListDeviceTokensByUserIDs(db.Postgresql, []string{user.ID})
-	require.NoError(t, err)
-	assert.Equal(t, 2, len(fetched))
+		fetched, err := models.ListDeviceTokensByUserIDs(db.Postgresql, []string{user.ID})
+		require.NoError(t, err)
+
+		var matched []models.UserDeviceToken
+		for _, token := range fetched {
+			if token.Platform == plat {
+				matched = append(matched, token)
+			}
+		}
+
+		require.Equal(t, 1, len(matched), "expected only 1 token for platform %s", plat)
+		assert.Equal(t, tokenSecond, matched[0].Token, "expected token to be updated to latest value for %s", plat)
+	}
 }
 
 func TestUserDeviceToken_Upsert_Atomic(t *testing.T) {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -27,13 +28,23 @@ type DeleteFcmTokenRequest struct {
 }
 
 func (token *UserDeviceToken) Upsert(db *gorm.DB) error {
-	if token.ID == "" {
-		token.ID = utility.GenerateUUID()
+	var existing UserDeviceToken
+	err := db.Where("user_id = ? AND platform = ?", token.UserId, token.Platform).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if token.ID == "" {
+			token.ID = utility.GenerateUUID()
+		}
+		return db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "token"}},
+			DoUpdates: clause.AssignmentColumns([]string{"user_id", "platform", "updated_at"}),
+		}).Create(token).Error
 	}
-	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "token"}},
-		DoUpdates: clause.AssignmentColumns([]string{"user_id", "platform", "updated_at"}),
-	}).Create(token).Error
+	if err != nil {
+		return err
+	}
+
+	token.ID = existing.ID
+	return db.Model(&existing).Update("token", token.Token).Error
 }
 
 func ListDeviceTokensByUserIDs(db *gorm.DB, userIDs []string) ([]UserDeviceToken, error) {
